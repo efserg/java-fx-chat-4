@@ -8,12 +8,15 @@ import java.net.Socket;
 import ru.gb.javafxchat4.Command;
 
 public class ClientHandler {
+    private static final int AUTH_TIMEOUT = 120_000;
+
     private Socket socket;
     private ChatServer server;
     private DataInputStream in;
     private DataOutputStream out;
     private String nick;
     private AuthService authService;
+    private Thread timeoutThread;
 
     public ClientHandler(Socket socket, ChatServer server, AuthService authService) {
         try {
@@ -22,10 +25,23 @@ public class ClientHandler {
             this.authService = authService;
             this.in = new DataInputStream(socket.getInputStream());
             this.out = new DataOutputStream(socket.getOutputStream());
+
+            this.timeoutThread = new Thread(() -> {
+                try {
+                    Thread.sleep(AUTH_TIMEOUT);
+                    sendMessage(Command.STOP); // Если в другом потоке не будет вызван метод interrupt, то мы попадем сюда
+                } catch (InterruptedException e) {
+                    // В другом потоке была успешная авторизация
+                    System.out.println("Успешная авторизация");;
+                }
+            });
+            timeoutThread.start();
+
             new Thread(() -> {
                 try {
-                    authenticate();
-                    readMessages();
+                    if (authenticate()) {
+                        readMessages();
+                    }
                 } finally {
                     closeConnection();
                 }
@@ -35,12 +51,14 @@ public class ClientHandler {
         }
     }
 
-    private void authenticate() {
+    private boolean authenticate() {
         while (true) {
             try {
                 final String message = in.readUTF();
                 final Command command = Command.getCommand(message);
-
+                if (command == Command.END) {
+                    return false;
+                }
                 if (command == Command.AUTH) {
                     final String[] params = command.parse(message);
                     final String login = params[0];
@@ -51,11 +69,12 @@ public class ClientHandler {
                             sendMessage(Command.ERROR, "Пользователь уже авторизован");
                             continue;
                         }
+                        this.timeoutThread.interrupt(); // при вызове этого метода у спящего треда будет брошено InterruptedException
                         sendMessage(Command.AUTHOK, nick);
                         this.nick = nick;
                         server.broadcast(Command.MESSAGE, "Пользователь " + nick + " зашел в чат");
                         server.subscribe(this);
-                        break;
+                        return true;
                     } else {
                         sendMessage(Command.ERROR, "Неверные логин и пароль");
                     }

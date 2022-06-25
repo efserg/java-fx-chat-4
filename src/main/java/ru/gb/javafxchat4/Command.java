@@ -61,6 +61,12 @@ public enum Command {
             final String[] split = commandText.split(TOKEN_DELIMITER, 2);
             return new String[]{split[1]};
         }
+    },
+    STOP("/stop") {
+        @Override
+        public String[] parse(String commandText) {
+            return new String[0];
+        }
     };
 
     private final String command;

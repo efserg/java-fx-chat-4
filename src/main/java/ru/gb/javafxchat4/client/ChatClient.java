@@ -5,6 +5,7 @@ import static ru.gb.javafxchat4.Command.CLIENTS;
 import static ru.gb.javafxchat4.Command.END;
 import static ru.gb.javafxchat4.Command.ERROR;
 import static ru.gb.javafxchat4.Command.MESSAGE;
+import static ru.gb.javafxchat4.Command.STOP;
 import static ru.gb.javafxchat4.Command.getCommand;
 
 import java.io.DataInputStream;
@@ -33,8 +34,9 @@ public class ChatClient {
         out = new DataOutputStream(socket.getOutputStream());
         new Thread(() -> {
             try {
-                waitAuth();
-                readMessages();
+                if (waitAuth()) {
+                    readMessages();
+                }
             } catch (IOException e) {
                 e.printStackTrace();
             } finally {
@@ -44,7 +46,7 @@ public class ChatClient {
 
     }
 
-    private void waitAuth() throws IOException {
+    private boolean waitAuth() throws IOException {
         while (true) {
             final String message = in.readUTF();
             final Command command = getCommand(message);
@@ -53,11 +55,21 @@ public class ChatClient {
                 final String nick = params[0];
                 controller.setAuth(true);
                 controller.addMessage("Успешная авторизация под ником " + nick);
-                break;
+                return true;
             }
             if (command == ERROR) {
                 Platform.runLater(() -> controller.showError(params[0]));
                 continue;
+            }
+            if (command == STOP) {
+                Platform.runLater(() -> controller.showError("Истекло время на авторизацию, перезапустите приложение"));
+                try {
+                    Thread.sleep(5000); // Без sleep пользователь не увидит сообщение об ошибке. Хочется более изящного решения, но лень его искать
+                    sendMessage(END);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                return false;
             }
         }
     }
@@ -84,6 +96,7 @@ public class ChatClient {
                 e.printStackTrace();
             }
         }
+        System.exit(0);
     }
 
     private void readMessages() throws IOException {
